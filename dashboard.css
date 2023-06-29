@@ -91,13 +91,19 @@ body {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, .25);
 }
 
-#preview-image {
-  position: absolute;
+#preview-image-container {
+  position: fixed;
   max-height: 80%;
   max-width: 80%;
   left: 15px;
   bottom: 15px;
   z-index: 100;
-  opacity: 0.5;
-  pointer-events: none;
+}
+
+#preview-image-container a {
+  pointer-events: all;
+}
+
+#preview-image {
+  cursor: pointer;
 }

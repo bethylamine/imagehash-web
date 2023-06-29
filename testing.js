@@ -1,4 +1,21 @@
+"use strict";
 
+const progressBar = document.getElementById("progress-bar");
+
+function updateProgressBar(percentage) {
+    let p = Math.floor(percentage);
+    progressBar.setAttribute("aria-valuenow", p);
+    progressBar.style.width = `${p}%`;
+}
+
+function centeredQuotes() {
+    let div = document.createElement("div");
+    div.style.display = "inline-block";
+    div.style.width = "100%";
+    div.style.textAlign = "center";
+    div.innerText = '"';
+    return div;
+}
 
 function hide(element) {
     element.classList.add("d-none");
@@ -9,14 +26,33 @@ function show(element) {
 }
 
 function shortened(src) {
-    src = src.substr(src.length-10);
-    src = src.substr(0, src.length - 4);
-    return "..." + src;
+    let hash = hashOnly(src);
+    return "..." + hash.substr(hash.length - 10);
+}
+
+function hashOnly(src) {
+    let slashIndex = src.lastIndexOf("/");
+    if (slashIndex < 0) {
+        slashIndex = 0;
+    } else {
+        slashIndex++;
+    }
+    
+    return src = src.substr(slashIndex, src.length - 4);
+}
+
+function shortenedAndLinked(src) {
+    let shortenedSrc = shortened(src);
+    let link = document.createElement("a");
+    link.href = src;
+    link.innerText = shortenedSrc;
+    link.target = "_blank";
+    return link;
 }
 
 function addRow(items) {
     let row = document.createElement("tr");
-    for (item of items) {
+    for (let item of items) {
         let cell = document.createElement("td");
         if (item instanceof HTMLElement) {
             cell.appendChild(item);
@@ -28,184 +64,329 @@ function addRow(items) {
     testCasesTableTbody.appendChild(row);
 }
 
-function setSmoothScaling(ctx) {
-    ctx.webkitImageSmoothingEnabled = true;
-    ctx.msImageSmoothingEnabled = true;
-    ctx.mozImageSmoothingEnabled = true;
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-}
-
-function transformImageResize(imgSrc, ratio) {
-    return new Promise((resolve, reject) => {
-        let img = new Image();
-        img.setAttribute("crossOrigin", "Anonymous");
-        img.onload = () => {
-            if (ratio > 2) {
-                ratio = 128 / img.naturalWidth;
-            }
-            const width = img.naturalWidth * ratio;
-            const height = img.naturalHeight * ratio;
-            const canvas = document.createElement("canvas");
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext("2d");
-            setSmoothScaling(ctx);
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL());
-        }
-        img.onerror = reject;
-        img.src = imgSrc;
-    })
-}
-
-function transformImageJpeg(imgSrc, quality) {
-    return new Promise((resolve, reject) => {
-        let img = new Image();
-        img.setAttribute("crossOrigin", "Anonymous");
-        img.onload = () => {
-            const width = img.naturalWidth;
-            const height = img.naturalHeight;
-            const canvas = document.createElement("canvas");
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL("image/jpeg", quality));
-        }
-        img.onerror = reject;
-        img.src = imgSrc;
-    })
-}
-
-function transformImagePortraitScreenshot(imgSrc) {
-    return new Promise((resolve, reject) => {
-        let img = new Image();
-        img.setAttribute("crossOrigin", "Anonymous");
-        img.onload = () => {
-            const aspectRatio = img.naturalWidth / img.naturalHeight;
-            const iPhoneWidth = 1170;
-            const iPhoneHeight = 2532;
-            const canvas = document.createElement("canvas");
-            canvas.width = iPhoneWidth / 3;
-            canvas.height = iPhoneHeight / 3;
-            const ctx = canvas.getContext("2d");
-            ctx.fillStyle = "black";
-            const height = canvas.width / aspectRatio;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            setSmoothScaling(ctx);
-            ctx.drawImage(img, 0, canvas.height / 2 - height / 2, canvas.width, height);
-            resolve(canvas.toDataURL());
-        }
-        img.onerror = reject;
-        img.src = imgSrc;
-    })
-}
-
-async function transformImage(imgSrc, transform) {
-    let transformedImgSrc = imgSrc;
-
-    if (transform == "ground_truth") {
-        transformedImgSrc = imgSrc;
-    } else if (transform == "resize_128") {
-        transformedImgSrc = await transformImageResize(imgSrc, 128);
-    } else if (transform == "jpeg_10") {
-        transformedImgSrc = await transformImageJpeg(imgSrc, 0.1);
-    } else if (transform == "portrait_screenshot") {
-        transformedImgSrc = await transformImagePortraitScreenshot(imgSrc);
-    }
-
-    transformedImages[imgSrc + transform] = transformedImgSrc;
-    return transformedImgSrc;
-}
-
 const runTestsButton = document.getElementById("run-tests");
 const testCasesHeader = document.getElementById("test-cases-header");
 const testCasesTable = document.getElementById("test-cases-table");
 const testCasesTableTbody = document.getElementById("test-cases-table-tbody");
 const previewImage = document.getElementById("preview-image");
+const hidePreviewImage = document.getElementById("hide-preview-image");
+const resultsArea = document.getElementById("results-area");
 
 var hashResults = {};
 
 const groundTruth = "ground_truth";
 
-const transforms = [
-    groundTruth,
-    "resize_128",
-    "jpeg_10",
-    "portrait_screenshot"
-]
 var transformedImages = {};
 
-runTestsButton.addEventListener("click", async () => {
-    hide(runTestsButton);
-    show(testCasesHeader);
-    show(testCasesTable);
+async function transformImage(imgSrc, transform) {
+    let transformedImgSrc = imgSrc;
+    let imgTransformKey = imgSrc + transform.name;
 
+    if (imgTransformKey in transformedImages) {
+        return transformedImages[imgTransformKey];
+    }
+
+    transformedImgSrc = await transform.asyncFunction(imgSrc);
+
+    transformedImages[imgTransformKey] = transformedImgSrc;
+    return transformedImgSrc;
+}
+
+const transforms = [
+    {
+        name: groundTruth,
+        asyncFunction: (imgSrc) => new Promise((r, _) => r(imgSrc))
+    },
+    // {
+    //     // Twitter media thumbnail size
+    //     name: "resize_240",
+    //     asyncFunction: (imgSrc) => transformImageResize(imgSrc, 240)
+    // }, 
+    // {
+    //     // highly jpegified
+    //     name: "jpeg_10",
+    //     asyncFunction: (imgSrc) => transformImageJpeg(imgSrc, 0.1)
+    // },
+    // {
+    //     // poorly cropped
+    //     name: "edge_crop",
+    //     asyncFunction: (imgSrc) => transformImageCrop(imgSrc)
+    // },
+
+    // tricker scenarios
+    
+    {
+        name: "portrait_screenshot",
+        asyncFunction: (imgSrc) => transformImagePortraitScreenshot(imgSrc)
+    },
+    {
+        name: "iphone_gallery",
+        asyncFunction: (imgSrc) => transformImagePortraitScreenshot(imgSrc, assets["iphone-gallery.jpg"])
+    },
+    // {
+    //     name: "offset",
+    //     asyncFunction: (imgSrc) => transformImageOffset(imgSrc)
+    // }
+]
+
+const hashFuncs = [
+    // {
+    //     name: "pre-cacher",
+    //     asyncFunction: async (img) => ImageHash.fromBase64("00")
+    // },
+    {
+        name: "phash",
+        asyncFunction: async (img) => await phash(img)
+    },
+    // {
+    //     name: "whash(4)",
+    //     asyncFunction: async (img) => await whash(img, 4)
+    // },
+]
+
+hidePreviewImage.addEventListener("click", () => {
+    previewImage.src = "";
+});
+
+previewImage.addEventListener("click", () => {
+    previewImage.src = "";
+});
+
+let testResults = {};
+let jsonOut = {};
+
+runTestsButton.addEventListener("click", async () => {
+    runTests();
+});
+
+async function runTests() {
+    hide(runTestsButton);
+    show(resultsArea);
+
+    testResults = {};
+    jsonOut = {};
+
+    await executeHashes();
+    computeSummary();
+    displaySummary();
+}
+
+function computeSummary() {
+    for (let hashFuncName in testResults) {
+        let results = testResults[hashFuncName];
+        results["hash_hit_rate"] = results["hash_hits"] / (results["hash_hits"] + results["hash_misses"]);
+        results["avg_time"] = results["compute_times"].reduce((a, b) => a + b) / results["compute_times"].length;
+        results["min_cross_hamming_dist"] = {
+            "distance": 999999999,
+            "sample_img_src": "",
+            "sample_hash": "",
+            "test_ground_truth_img_src": "",
+            "test_hash": "",
+        };
+
+        for (let sampleImgSrc in results["ground_truth_hashes"]) {
+            const sampleHash = results["ground_truth_hashes"][sampleImgSrc];
+
+            jsonOut[sampleHash.toHexString()] = {
+                src: hashOnly(sampleImgSrc)
+            };
+
+            // Compare against all other samples' hashes
+            for (let testImgSrc in results["ground_truth_hashes"]) {
+                if (sampleImgSrc == testImgSrc) {
+                    continue;
+                }
+                
+                const testHash = results["ground_truth_hashes"][testImgSrc];
+                const hammingDistance = sampleHash.hammingDistance(testHash);
+                
+                console.log("Cross hamming distance (between samples)", hammingDistance);
+
+                if (hammingDistance < results["min_cross_hamming_dist"]["distance"]) {
+                    results["min_cross_hamming_dist"] = {
+                        "distance": hammingDistance,
+                        "sample_img_src": sampleImgSrc,
+                        "sample_hash": sampleHash,
+                        "test_ground_truth_img_src": testImgSrc,
+                        "test_hash": testHash
+                    }
+                }
+            }
+
+            // Compare against all other samples' transformed hashes
+            for (let testImgSrc in results["transformed_hashes"]) {
+                if (sampleImgSrc == testImgSrc) {
+                    continue;
+                }
+                const transformedHashesForImg = results["transformed_hashes"][testImgSrc];
+                for (let transformedImgSrc in transformedHashesForImg) {
+                    const testHash = transformedHashesForImg[transformedImgSrc];
+                    const hammingDistance = sampleHash.hammingDistance(testHash);
+                    
+                    if (hammingDistance < results["min_cross_hamming_dist"]["distance"]) {
+                        results["min_cross_hamming_dist"] = {
+                            "distance": hammingDistance,
+                            "sample_img_src": sampleImgSrc,
+                            "sample_ground_truth_hash": sampleHash,
+                            "test_ground_truth_img_src": transformedImgSrc,
+                            "test_hash": testHash
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    console.log(testResults);
+}
+
+function displaySummary() {
+    console.log(jsonOut);
+}
+
+async function executeHashes() {
+    for (let hashFunc of hashFuncs) {
+        const hashFuncHeader = document.createElement("h5");
+        hashFuncHeader.innerText = hashFunc.name;
+
+        testResults[hashFunc.name] = {
+            "hash_hits": 0,
+            "hash_misses": 0,
+            "max_match_hamming_dist": {
+                "distance": -1,
+                "transform": "",
+                "img_src": "",
+            },
+            "min_cross_hamming_dist": {
+                "distance": 999999999,
+                "sample_img_src": "",
+                "sample_ground_truth_hash": "",
+                "test_ground_truth_img_src": "",
+                "test_transform_hash": "",
+            },
+            "compute_times": [],
+            "ground_truth_hashes": {},
+            "transformed_hashes": {}
+        }
+    
+        addRow([
+            "",
+            hashFuncHeader,
+            "",
+            "",
+            "",
+            ""
+        ]);
+        await runSamples(hashFunc);
+    }
+}
+
+async function getHash(hashFunc, transformedImgSrc) {
+    let start = Date.now();
+    return new Promise((resolve, reject) => {
+        const img = document.createElement("img");
+
+        img.addEventListener("load", async () => {
+            const hash = await hashFunc.asyncFunction(img)
+            resolve({
+                start: start,
+                hash: hash
+            });
+        });
+
+        img.setAttribute("crossorigin", "Anonymous");
+        img.src = transformedImgSrc;
+    });
+}
+
+async function runSamples(hashFunc) {
     let counter = 0;
 
-    hashResults = {};
+    for (let sampleImgUrl of samples) {
+        updateProgressBar(100 * (counter / samples.length));
+        try {
+            let groundTruthHash = "";
+            for (let transform of transforms) {
+                console.log("Beginning transform:",transform);
 
-    for (let sample of samples) {
-        let groundTruthHash = "";
-        for (let transformType of transforms) {
-            const img = document.createElement("img");
-            const originalImgSrc = sample.src;
-            img.src = await transformImage(sample.src, transformType);
-            img.setAttribute("crossorigin", "Anonymous");
+                let hammingDistance = "";
+                const originalImgSrc = sampleImgUrl;
 
-            // Avoid race conditions by running in series.
-            var result = await new Promise((resolve, reject) => {
-                img.addEventListener("load", () => {
-                    let start = Date.now();
-                    const hash = phash(img, 8);
-                    resolve({
-                        start: start,
-                        hash: hash
-                    })
+                let transformedImgSrc = await transformImage(sampleImgUrl, transform);
+                
+                let processedImgSrc = await transformImage(transformedImgSrc, {
+                    name: "pre-process",
+                    asyncFunction: (i) => transformImageForPreHashing(i, 512)
                 });
-            });
 
-            let start = result.start;
-            let hash = result.hash;
 
-            if (transformType == groundTruth) {
-                groundTruthHash = hash;
-                hammingDistance = "---";
-            } else {
-                hammingDistance = hash.hammingDistance(groundTruthHash);
+
+                const result = await getHash(hashFunc, processedImgSrc);
+
+                let start = result.start;
+                const hash = result.hash;
+
+                if (transform.name == groundTruth) {
+                    groundTruthHash = hash;
+                    hammingDistance = "---";
+                    testResults[hashFunc.name]["ground_truth_hashes"][sampleImgUrl] = hash;
+                } else {
+                    hammingDistance = hash.hammingDistance(groundTruthHash);
+
+                    if (testResults[hashFunc.name]["max_match_hamming_dist"]["distance"] < hammingDistance) {
+                        testResults[hashFunc.name]["max_match_hamming_dist"]["distance"] = hammingDistance;
+                        testResults[hashFunc.name]["max_match_hamming_dist"]["img_src"] = originalImgSrc;
+                        testResults[hashFunc.name]["max_match_hamming_dist"]["transform"] = transform.name;
+                    }
+                    if (hammingDistance == 0) {
+                        testResults[hashFunc.name]["hash_hits"]++;
+                    } else {
+                        testResults[hashFunc.name]["hash_misses"]++;
+                    }
+
+                    if (!(sampleImgUrl in testResults[hashFunc.name]["transformed_hashes"])) {
+                        testResults[hashFunc.name]["transformed_hashes"][sampleImgUrl] = {};
+                    }
+                    testResults[hashFunc.name]["transformed_hashes"][sampleImgUrl][transformedImgSrc] = hash;
+                }
+                let imageLink = document.createElement("a");
+                imageLink.href = "javascript:;";
+                imageLink.addEventListener("click", () => {
+                    previewImage.src = processedImgSrc;
+                });
+
+                if (transform.name == groundTruth) {
+                    let boldSpan = document.createElement("span");
+                    boldSpan.style.fontWeight = "bold";
+                    boldSpan.innerText = transform.name;
+                    imageLink.append(boldSpan);
+                } else {
+                    imageLink.innerText = transform.name;
+                }
+
+                const computeTime = Date.now() - start;
+                testResults[hashFunc.name]["compute_times"].push(computeTime);
+
+
+                addRow([
+                    (transform.name == groundTruth) ? shortenedAndLinked(originalImgSrc) : centeredQuotes(),
+                    imageLink,
+                    hashFunc.name,
+                    computeTime,
+                    hash.toHexString(),
+                    hammingDistance
+                ]);
             }
-            let imageLink = document.createElement("a");
-            imageLink.href = "javascript:;";
-            imageLink.addEventListener("click", () => {
-                previewImage.src = img.src;
-            });
-
-            if (transformType == groundTruth) {
-                let boldSpan = document.createElement("span");
-                boldSpan.style.fontWeight = "bold";
-                boldSpan.innerText = transformType;
-                imageLink.append(boldSpan);
-            } else {
-                imageLink.innerText = transformType;
-            }
-
-            addRow([
-                shortened(originalImgSrc),
-                imageLink,
-                "phash",
-                Date.now() - start,
-                hash.toHexString(),
-                hammingDistance
-            ]);
+        } catch (error) {
+            console.error(error, sampleImgUrl);
         }
 
         counter++;
 
-        if (counter >= 5) {
+        if (false && counter >= 50) {
             addRow([
                 "",
-                "Iteration stopped after 5 samples",
+                "(Remaining samples skipped)",
                 "",
                 "",
                 "",
@@ -214,4 +395,26 @@ runTestsButton.addEventListener("click", async () => {
             break;
         }
     }
+}
+
+async function wait() {
+    return new Promise((r, _) => {
+        setTimeout(r, 200);
+    });
+}
+
+async function reproduceProblem() {
+    const cami = {
+        name: "cami",
+        function: (img) => phash(img, 8, 4)
+    };
+
+    const url = "http://localhost:3000/positive/005e3faa785f907eb1a33fb715528c55.jpg";
+
+    await transformImageResize(url, 1);
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    runTests();
+    //reproduceProblem();
 });
